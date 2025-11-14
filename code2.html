@@ -1,0 +1,428 @@
+import React, { useState } from 'react';
+import { MapPin, Factory, AlertTriangle, TrendingUp, Settings } from 'lucide-react';
+
+const FacilityOptimizer = () => {
+  const [gridSize, setGridSize] = useState(15);
+  const [maxFacilities, setMaxFacilities] = useState(3);
+  const [facilityCapacity, setFacilityCapacity] = useState(80000);
+  const [results, setResults] = useState(null);
+  const [isOptimizing, setIsOptimizing] = useState(false);
+
+  // Generate synthetic spatial data
+  const generateData = (size) => {
+    const cells = [];
+    const random = (seed) => {
+      let x = Math.sin(seed++) * 10000;
+      return x - Math.floor(x);
+    };
+
+    for (let i = 0; i < size; i++) {
+      for (let j = 0; j < size; j++) {
+        const seed = i * size + j;
+        const wasteGen = Math.exp(10 + random(seed * 3) * 1.5);
+        const popDensity = Math.exp(8 + random(seed * 5) * 2);
+        const infraDist = -Math.log(random(seed * 7)) * 10;
+        const isRestricted = random(seed * 11) < 0.2 ? 1 : 0;
+
+        cells.push({
+          id: seed,
+          x: i,
+          y: j,
+          wasteGen: wasteGen,
+          popDensity: popDensity,
+          infraDist: infraDist,
+          isRestricted: isRestricted
+        });
+      }
+    }
+    return cells;
+  };
+
+  // Calculate distance between two cells
+  const distance = (cell1, cell2) => {
+    return Math.sqrt(Math.pow(cell1.x - cell2.x, 2) + Math.pow(cell1.y - cell2.y, 2));
+  };
+
+  // Greedy heuristic optimization
+  const optimizeFacilities = (cells, maxFac, capacity, optimalRadius = 15) => {
+    const facilities = [];
+    const assignments = new Array(cells.length).fill(-1);
+    
+    // Filter out restricted areas
+    const validCells = cells.filter(c => c.isRestricted === 0);
+    
+    // Greedy selection: prioritize high waste generation and good coverage
+    for (let f = 0; f < maxFac; f++) {
+      let bestScore = -Infinity;
+      let bestCell = null;
+      
+      for (const candidate of validCells) {
+        if (facilities.some(fac => fac.id === candidate.id)) continue;
+        
+        // Calculate score based on:
+        // 1. Waste generation in coverage area
+        // 2. Population coverage
+        // 3. Distance to infrastructure
+        let score = 0;
+        let coveredWaste = 0;
+        let coveredPop = 0;
+        
+        for (const cell of cells) {
+          const dist = distance(candidate, cell);
+          if (dist <= optimalRadius && assignments[cell.id] === -1) {
+            coveredWaste += cell.wasteGen;
+            coveredPop += cell.popDensity;
+          }
+        }
+        
+        score = coveredWaste * 0.5 + coveredPop * 0.3 - candidate.infraDist * 0.2;
+        
+        if (score > bestScore) {
+          bestScore = score;
+          bestCell = candidate;
+        }
+      }
+      
+      if (bestCell) {
+        facilities.push(bestCell);
+        
+        // Assign cells to this facility
+        for (let i = 0; i < cells.length; i++) {
+          if (assignments[i] === -1) {
+            const dist = distance(bestCell, cells[i]);
+            if (dist <= optimalRadius) {
+              assignments[i] = facilities.length - 1;
+            }
+          }
+        }
+      }
+    }
+    
+    // Assign remaining cells to nearest facility
+    for (let i = 0; i < cells.length; i++) {
+      if (assignments[i] === -1) {
+        let minDist = Infinity;
+        let nearestFac = 0;
+        
+        for (let f = 0; f < facilities.length; f++) {
+          const dist = distance(facilities[f], cells[i]);
+          if (dist < minDist) {
+            minDist = dist;
+            nearestFac = f;
+          }
+        }
+        assignments[i] = nearestFac;
+      }
+    }
+    
+    return { facilities, assignments };
+  };
+
+  const runOptimization = () => {
+    setIsOptimizing(true);
+    
+    setTimeout(() => {
+      const cells = generateData(gridSize);
+      const { facilities, assignments } = optimizeFacilities(
+        cells, 
+        maxFacilities, 
+        facilityCapacity
+      );
+      
+      // Calculate metrics
+      const totalWaste = cells.reduce((sum, c) => sum + c.wasteGen, 0);
+      const totalPop = cells.reduce((sum, c) => sum + c.popDensity, 0);
+      
+      let totalTransportCost = 0;
+      let coveredPop = 0;
+      
+      cells.forEach((cell, idx) => {
+        const facility = facilities[assignments[idx]];
+        const dist = distance(cell, facility);
+        totalTransportCost += dist * cell.wasteGen * 0.1;
+        
+        if (dist <= 15) {
+          coveredPop += cell.popDensity;
+        }
+      });
+      
+      const avgDistance = cells.reduce((sum, cell, idx) => {
+        return sum + distance(cell, facilities[assignments[idx]]);
+      }, 0) / cells.length;
+      
+      setResults({
+        cells,
+        facilities,
+        assignments,
+        metrics: {
+          totalWaste,
+          totalPop,
+          totalTransportCost,
+          avgDistance,
+          coverage: (coveredPop / totalPop) * 100
+        }
+      });
+      
+      setIsOptimizing(false);
+    }, 500);
+  };
+
+  const getHeatmapColor = (value, max, type = 'waste') => {
+    const intensity = value / max;
+    if (type === 'waste') {
+      return `rgba(255, 140, 0, ${intensity * 0.8})`;
+    } else if (type === 'pop') {
+      return `rgba(0, 100, 255, ${intensity * 0.8})`;
+    } else if (type === 'restricted') {
+      return value > 0 ? 'rgba(220, 38, 38, 0.7)' : 'rgba(200, 200, 200, 0.1)';
+    }
+  };
+
+  const renderGrid = (cells, type = 'waste') => {
+    if (!cells) return null;
+    
+    const max = Math.max(...cells.map(c => 
+      type === 'waste' ? c.wasteGen : 
+      type === 'pop' ? c.popDensity : 1
+    ));
+    
+    return (
+      <div className="grid gap-0.5" style={{ 
+        gridTemplateColumns: `repeat(${gridSize}, 1fr)`,
+        width: '100%',
+        aspectRatio: '1'
+      }}>
+        {cells.map((cell) => (
+          <div
+            key={cell.id}
+            className="relative"
+            style={{ 
+              backgroundColor: type === 'restricted' 
+                ? getHeatmapColor(cell.isRestricted, 1, 'restricted')
+                : type === 'waste' 
+                  ? getHeatmapColor(cell.wasteGen, max, 'waste')
+                  : getHeatmapColor(cell.popDensity, max, 'pop')
+            }}
+            title={`Cell ${cell.id}: ${type === 'waste' ? `Waste: ${cell.wasteGen.toFixed(0)}t` : `Pop: ${cell.popDensity.toFixed(0)}`}`}
+          >
+            {results?.facilities.some(f => f.id === cell.id) && (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <Factory className="w-4 h-4 text-red-600" strokeWidth={3} />
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    );
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-4">
+      <div className="max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+          <div className="flex items-center gap-3 mb-2">
+            <MapPin className="w-8 h-8 text-blue-600" />
+            <h1 className="text-3xl font-bold text-gray-800">
+              EIA Facility Location Optimizer
+            </h1>
+          </div>
+          <p className="text-gray-600">
+            Multi-objective spatial optimization for waste management infrastructure
+          </p>
+        </div>
+
+        {/* Controls */}
+        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+          <div className="flex items-center gap-2 mb-4">
+            <Settings className="w-5 h-5 text-gray-700" />
+            <h2 className="text-xl font-semibold text-gray-800">Configuration</h2>
+          </div>
+          
+          <div className="grid md:grid-cols-3 gap-6 mb-6">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Grid Size: {gridSize}x{gridSize}
+              </label>
+              <input
+                type="range"
+                min="10"
+                max="20"
+                value={gridSize}
+                onChange={(e) => setGridSize(parseInt(e.target.value))}
+                className="w-full"
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Max Facilities: {maxFacilities}
+              </label>
+              <input
+                type="range"
+                min="2"
+                max="5"
+                value={maxFacilities}
+                onChange={(e) => setMaxFacilities(parseInt(e.target.value))}
+                className="w-full"
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Capacity: {(facilityCapacity / 1000).toFixed(0)}k tons/year
+              </label>
+              <input
+                type="range"
+                min="50000"
+                max="150000"
+                step="10000"
+                value={facilityCapacity}
+                onChange={(e) => setFacilityCapacity(parseInt(e.target.value))}
+                className="w-full"
+              />
+            </div>
+          </div>
+          
+          <button
+            onClick={runOptimization}
+            disabled={isOptimizing}
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 px-6 rounded-lg transition-colors disabled:bg-gray-400"
+          >
+            {isOptimizing ? 'Optimizing...' : 'Run Optimization'}
+          </button>
+        </div>
+
+        {/* Results */}
+        {results && (
+          <>
+            {/* Metrics */}
+            <div className="grid md:grid-cols-4 gap-4 mb-6">
+              <div className="bg-white rounded-lg shadow-lg p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <Factory className="w-5 h-5 text-blue-600" />
+                  <div className="text-sm text-gray-600">Facilities</div>
+                </div>
+                <div className="text-2xl font-bold text-gray-800">
+                  {results.facilities.length}
+                </div>
+              </div>
+              
+              <div className="bg-white rounded-lg shadow-lg p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <TrendingUp className="w-5 h-5 text-green-600" />
+                  <div className="text-sm text-gray-600">Total Waste</div>
+                </div>
+                <div className="text-2xl font-bold text-gray-800">
+                  {(results.metrics.totalWaste / 1000).toFixed(0)}k t/yr
+                </div>
+              </div>
+              
+              <div className="bg-white rounded-lg shadow-lg p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <MapPin className="w-5 h-5 text-purple-600" />
+                  <div className="text-sm text-gray-600">Avg Distance</div>
+                </div>
+                <div className="text-2xl font-bold text-gray-800">
+                  {results.metrics.avgDistance.toFixed(1)} km
+                </div>
+              </div>
+              
+              <div className="bg-white rounded-lg shadow-lg p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <AlertTriangle className="w-5 h-5 text-orange-600" />
+                  <div className="text-sm text-gray-600">Coverage</div>
+                </div>
+                <div className="text-2xl font-bold text-gray-800">
+                  {results.metrics.coverage.toFixed(1)}%
+                </div>
+              </div>
+            </div>
+
+            {/* Visualizations */}
+            <div className="grid md:grid-cols-2 gap-6">
+              <div className="bg-white rounded-lg shadow-lg p-6">
+                <h3 className="text-lg font-semibold text-gray-800 mb-4">
+                  Waste Generation Density
+                </h3>
+                {renderGrid(results.cells, 'waste')}
+                <div className="mt-4 text-sm text-gray-600">
+                  Darker orange = Higher waste generation
+                </div>
+              </div>
+              
+              <div className="bg-white rounded-lg shadow-lg p-6">
+                <h3 className="text-lg font-semibold text-gray-800 mb-4">
+                  Restricted Areas
+                </h3>
+                {renderGrid(results.cells, 'restricted')}
+                <div className="mt-4 text-sm text-gray-600">
+                  Red = Restricted zones (no facilities allowed)
+                </div>
+              </div>
+              
+              <div className="bg-white rounded-lg shadow-lg p-6">
+                <h3 className="text-lg font-semibold text-gray-800 mb-4">
+                  Population Distribution
+                </h3>
+                {renderGrid(results.cells, 'pop')}
+                <div className="mt-4 text-sm text-gray-600">
+                  Darker blue = Higher population density
+                </div>
+              </div>
+              
+              <div className="bg-white rounded-lg shadow-lg p-6">
+                <h3 className="text-lg font-semibold text-gray-800 mb-4">
+                  Optimal Facility Locations
+                </h3>
+                {renderGrid(results.cells, 'waste')}
+                <div className="mt-4 text-sm text-gray-600">
+                  <Factory className="w-4 h-4 inline mr-1 text-red-600" />
+                  = Facility location
+                </div>
+              </div>
+            </div>
+
+            {/* Report */}
+            <div className="bg-white rounded-lg shadow-lg p-6 mt-6">
+              <h3 className="text-xl font-semibold text-gray-800 mb-4">
+                EIA Summary Report
+              </h3>
+              
+              <div className="space-y-4">
+                <div>
+                  <h4 className="font-semibold text-gray-700 mb-2">📊 Project Summary</h4>
+                  <ul className="text-sm text-gray-600 space-y-1 ml-4">
+                    <li>• Total waste generation: {results.metrics.totalWaste.toLocaleString()} tons/year</li>
+                    <li>• Total population served: {results.metrics.totalPop.toLocaleString()}</li>
+                    <li>• Number of facilities: {results.facilities.length}</li>
+                    <li>• Facility capacity: {facilityCapacity.toLocaleString()} tons/year each</li>
+                  </ul>
+                </div>
+                
+                <div>
+                  <h4 className="font-semibold text-gray-700 mb-2">📏 Performance Metrics</h4>
+                  <ul className="text-sm text-gray-600 space-y-1 ml-4">
+                    <li>• Average transport distance: {results.metrics.avgDistance.toFixed(2)} km</li>
+                    <li>• Population within optimal radius: {results.metrics.coverage.toFixed(1)}%</li>
+                    <li>• Estimated annual transport cost: ${results.metrics.totalTransportCost.toLocaleString()}</li>
+                  </ul>
+                </div>
+                
+                <div>
+                  <h4 className="font-semibold text-gray-700 mb-2">✅ Environmental Compliance</h4>
+                  <ul className="text-sm text-gray-600 space-y-1 ml-4">
+                    <li>• Restricted area violations: {results.facilities.filter(f => f.isRestricted === 1).length}</li>
+                    <li>• All facilities comply with zoning regulations</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default FacilityOptimizer;
