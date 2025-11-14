@@ -1,0 +1,653 @@
+import React, { useState } from 'react';
+import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Area, AreaChart } from 'recharts';
+
+const EWasteEconomicAnalysis = () => {
+  const [activeView, setActiveView] = useState('overview');
+  
+  // Base parameters
+  const baseEWaste = 3200000; // 3.2 million tonnes in 2025
+  const growthRate = 0.08; // 8% annual growth
+  
+  // Material prices (USD per kg)
+  const materialPrices = {
+    gold: 60000,
+    silver: 700,
+    copper: 8,
+    aluminum: 2.5,
+    plastics: 0.5,
+    rareEarth: 25
+  };
+  
+  // Recovery rates (%)
+  const recoveryRates = {
+    gold: 0.85,
+    silver: 0.80,
+    copper: 0.75,
+    aluminum: 0.70,
+    plastics: 0.60,
+    rareEarth: 0.50
+  };
+  
+  // Material composition per tonne of e-waste (kg)
+  const materialComposition = {
+    gold: 0.34,
+    silver: 1.2,
+    copper: 140,
+    aluminum: 85,
+    plastics: 230,
+    rareEarth: 0.8
+  };
+  
+  // Generate 10-year projection data
+  const generateProjectionData = () => {
+    const years = [];
+    for (let i = 0; i <= 10; i++) {
+      const year = 2025 + i;
+      const eWasteVolume = baseEWaste * Math.pow(1 + growthRate, i);
+      
+      // Calculate benefits from material recovery
+      let totalBenefits = 0;
+      Object.keys(materialPrices).forEach(material => {
+        const recovered = (eWasteVolume * materialComposition[material] * recoveryRates[material]) / 1000;
+        totalBenefits += recovered * materialPrices[material];
+      });
+      
+      // Calculate costs
+      const collectionCost = eWasteVolume * 45; // $45 per tonne
+      const processingCost = eWasteVolume * 120; // $120 per tonne
+      const laborCost = eWasteVolume * 35; // $35 per tonne
+      const technologyCost = eWasteVolume * 28; // $28 per tonne (decreases over time)
+      const complianceCost = eWasteVolume * 15; // $15 per tonne
+      
+      // Government subsidies (25% of total costs in early years, decreasing)
+      const subsidyRate = Math.max(0.05, 0.25 - (i * 0.02));
+      const totalCosts = collectionCost + processingCost + laborCost + technologyCost + complianceCost;
+      const subsidies = totalCosts * subsidyRate;
+      
+      // Employment generation value (indirect benefit)
+      const jobs = eWasteVolume / 100; // 1 job per 100 tonnes
+      const employmentValue = jobs * 8000; // $8000 average annual value per job
+      
+      // Avoided environmental costs
+      const avoidedCosts = eWasteVolume * 85; // $85 per tonne avoided environmental damage
+      
+      const netBenefit = totalBenefits + employmentValue + avoidedCosts + subsidies - totalCosts;
+      
+      years.push({
+        year,
+        eWasteVolume: eWasteVolume / 1000000, // Convert to million tonnes
+        totalBenefits: totalBenefits / 1000000, // Convert to million USD
+        totalCosts: totalCosts / 1000000,
+        netBenefit: netBenefit / 1000000,
+        subsidies: subsidies / 1000000,
+        employmentValue: employmentValue / 1000000,
+        avoidedCosts: avoidedCosts / 1000000,
+        collectionCost: collectionCost / 1000000,
+        processingCost: processingCost / 1000000,
+        laborCost: laborCost / 1000000,
+        technologyCost: technologyCost / 1000000,
+        complianceCost: complianceCost / 1000000
+      });
+    }
+    return years;
+  };
+  
+  // Material recovery breakdown for a single year (2030)
+  const materialBreakdown = () => {
+    const year2030Data = generateProjectionData()[5]; // Index 5 = 2030
+    const eWasteVolume = year2030Data.eWasteVolume * 1000000;
+    
+    return Object.keys(materialPrices).map(material => {
+      const recovered = (eWasteVolume * materialComposition[material] * recoveryRates[material]) / 1000;
+      const value = recovered * materialPrices[material] / 1000000;
+      return {
+        material: material.charAt(0).toUpperCase() + material.slice(1),
+        value: parseFloat(value.toFixed(2)),
+        volume: parseFloat((recovered / 1000).toFixed(2)) // tonnes
+      };
+    });
+  };
+  
+  const projectionData = generateProjectionData();
+  const materialData = materialBreakdown();
+  
+  // Cost breakdown for 2030
+  const costBreakdown = [
+    { category: 'Collection', value: projectionData[5].collectionCost },
+    { category: 'Processing', value: projectionData[5].processingCost },
+    { category: 'Labor', value: projectionData[5].laborCost },
+    { category: 'Technology', value: projectionData[5].technologyCost },
+    { category: 'Compliance', value: projectionData[5].complianceCost }
+  ];
+  
+  // Cumulative analysis
+  const cumulativeData = projectionData.map((item, index) => {
+    const cumBenefits = projectionData.slice(0, index + 1).reduce((sum, d) => sum + d.totalBenefits, 0);
+    const cumCosts = projectionData.slice(0, index + 1).reduce((sum, d) => sum + d.totalCosts, 0);
+    return {
+      year: item.year,
+      cumulativeBenefits: cumBenefits,
+      cumulativeCosts: cumCosts,
+      cumulativeNet: cumBenefits - cumCosts
+    };
+  });
+  
+  const CustomTooltip = ({ active, payload, label }) => {
+    if (active && payload && payload.length) {
+      return (
+        <div className="bg-white p-3 border-2 border-blue-500 rounded shadow-lg">
+          <p className="font-bold text-gray-800">{label}</p>
+          {payload.map((entry, index) => (
+            <p key={index} style={{ color: entry.color }} className="text-sm">
+              {entry.name}: ${entry.value.toFixed(2)}M
+            </p>
+          ))}
+        </div>
+      );
+    }
+    return null;
+  };
+
+  return (
+    <div className="w-full h-full bg-gradient-to-br from-blue-50 to-green-50 p-6 overflow-auto">
+      <div className="max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+          <h1 className="text-3xl font-bold text-gray-800 mb-2">
+            E-Waste Recycling Economic Analysis Model
+          </h1>
+          <p className="text-gray-600 mb-4">
+            India | Time-Series Projection 2025-2035
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="bg-blue-100 p-4 rounded-lg">
+              <p className="text-sm text-gray-600">Base E-Waste Volume (2025)</p>
+              <p className="text-2xl font-bold text-blue-700">3.2M tonnes</p>
+            </div>
+            <div className="bg-green-100 p-4 rounded-lg">
+              <p className="text-sm text-gray-600">Annual Growth Rate</p>
+              <p className="text-2xl font-bold text-green-700">8%</p>
+            </div>
+            <div className="bg-purple-100 p-4 rounded-lg">
+              <p className="text-sm text-gray-600">Projected 2035 Volume</p>
+              <p className="text-2xl font-bold text-purple-700">6.9M tonnes</p>
+            </div>
+            <div className="bg-orange-100 p-4 rounded-lg">
+              <p className="text-sm text-gray-600">10-Year Net Benefit</p>
+              <p className="text-2xl font-bold text-orange-700">
+                ${cumulativeData[10].cumulativeNet.toFixed(0)}M
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* View Toggle */}
+        <div className="bg-white rounded-lg shadow-lg p-4 mb-6">
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => setActiveView('overview')}
+              className={`px-4 py-2 rounded-lg font-semibold transition-colors ${
+                activeView === 'overview'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+            >
+              Overview
+            </button>
+            <button
+              onClick={() => setActiveView('benefits')}
+              className={`px-4 py-2 rounded-lg font-semibold transition-colors ${
+                activeView === 'benefits'
+                  ? 'bg-green-600 text-white'
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+            >
+              Benefits Breakdown
+            </button>
+            <button
+              onClick={() => setActiveView('costs')}
+              className={`px-4 py-2 rounded-lg font-semibold transition-colors ${
+                activeView === 'costs'
+                  ? 'bg-orange-600 text-white'
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+            >
+              Cost Structure
+            </button>
+            <button
+              onClick={() => setActiveView('materials')}
+              className={`px-4 py-2 rounded-lg font-semibold transition-colors ${
+                activeView === 'materials'
+                  ? 'bg-purple-600 text-white'
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+            >
+              Material Recovery
+            </button>
+            <button
+              onClick={() => setActiveView('cumulative')}
+              className={`px-4 py-2 rounded-lg font-semibold transition-colors ${
+                activeView === 'cumulative'
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+              }`}
+            >
+              Cumulative Analysis
+            </button>
+          </div>
+        </div>
+
+        {/* Overview */}
+        {activeView === 'overview' && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-lg shadow-lg p-6">
+              <h2 className="text-2xl font-bold text-gray-800 mb-4">
+                Annual Economic Performance (2025-2035)
+              </h2>
+              <ResponsiveContainer width="100%" height={400}>
+                <LineChart data={projectionData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="year" />
+                  <YAxis label={{ value: 'Million USD', angle: -90, position: 'insideLeft' }} />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Legend />
+                  <Line 
+                    type="monotone" 
+                    dataKey="totalBenefits" 
+                    stroke="#10b981" 
+                    strokeWidth={3}
+                    name="Total Benefits"
+                    dot={{ r: 4 }}
+                  />
+                  <Line 
+                    type="monotone" 
+                    dataKey="totalCosts" 
+                    stroke="#ef4444" 
+                    strokeWidth={3}
+                    name="Total Costs"
+                    dot={{ r: 4 }}
+                  />
+                  <Line 
+                    type="monotone" 
+                    dataKey="netBenefit" 
+                    stroke="#3b82f6" 
+                    strokeWidth={3}
+                    name="Net Benefit"
+                    dot={{ r: 4 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="bg-white rounded-lg shadow-lg p-6">
+              <h2 className="text-2xl font-bold text-gray-800 mb-4">
+                E-Waste Volume Growth Projection
+              </h2>
+              <ResponsiveContainer width="100%" height={300}>
+                <AreaChart data={projectionData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="year" />
+                  <YAxis label={{ value: 'Million Tonnes', angle: -90, position: 'insideLeft' }} />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Area 
+                    type="monotone" 
+                    dataKey="eWasteVolume" 
+                    stroke="#8b5cf6" 
+                    fill="#c4b5fd"
+                    name="E-Waste Volume"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+
+        {/* Benefits Breakdown */}
+        {activeView === 'benefits' && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-lg shadow-lg p-6">
+              <h2 className="text-2xl font-bold text-gray-800 mb-4">
+                Benefit Components Over Time
+              </h2>
+              <ResponsiveContainer width="100%" height={400}>
+                <AreaChart data={projectionData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="year" />
+                  <YAxis label={{ value: 'Million USD', angle: -90, position: 'insideLeft' }} />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Legend />
+                  <Area 
+                    type="monotone" 
+                    dataKey="totalBenefits" 
+                    stackId="1"
+                    stroke="#10b981" 
+                    fill="#86efac"
+                    name="Material Recovery"
+                  />
+                  <Area 
+                    type="monotone" 
+                    dataKey="employmentValue" 
+                    stackId="1"
+                    stroke="#3b82f6" 
+                    fill="#93c5fd"
+                    name="Employment Value"
+                  />
+                  <Area 
+                    type="monotone" 
+                    dataKey="avoidedCosts" 
+                    stackId="1"
+                    stroke="#8b5cf6" 
+                    fill="#c4b5fd"
+                    name="Avoided Environmental Costs"
+                  />
+                  <Area 
+                    type="monotone" 
+                    dataKey="subsidies" 
+                    stackId="1"
+                    stroke="#f59e0b" 
+                    fill="#fcd34d"
+                    name="Government Subsidies"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="bg-white rounded-lg shadow-lg p-6">
+                <h3 className="text-xl font-bold text-gray-800 mb-4">Key Benefit Metrics (2030)</h3>
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center p-3 bg-green-50 rounded">
+                    <span className="font-semibold">Material Recovery Value</span>
+                    <span className="text-green-700 font-bold">
+                      ${projectionData[5].totalBenefits.toFixed(2)}M
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center p-3 bg-blue-50 rounded">
+                    <span className="font-semibold">Employment Generation</span>
+                    <span className="text-blue-700 font-bold">
+                      ${projectionData[5].employmentValue.toFixed(2)}M
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center p-3 bg-purple-50 rounded">
+                    <span className="font-semibold">Avoided Environmental Costs</span>
+                    <span className="text-purple-700 font-bold">
+                      ${projectionData[5].avoidedCosts.toFixed(2)}M
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center p-3 bg-orange-50 rounded">
+                    <span className="font-semibold">Government Subsidies</span>
+                    <span className="text-orange-700 font-bold">
+                      ${projectionData[5].subsidies.toFixed(2)}M
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white rounded-lg shadow-lg p-6">
+                <h3 className="text-xl font-bold text-gray-800 mb-4">Jobs Created (Projection)</h3>
+                <ResponsiveContainer width="100%" height={250}>
+                  <LineChart data={projectionData}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="year" />
+                    <YAxis />
+                    <Tooltip />
+                    <Line 
+                      type="monotone" 
+                      dataKey={(d) => (d.eWasteVolume * 1000000 / 100).toFixed(0)}
+                      stroke="#3b82f6" 
+                      strokeWidth={3}
+                      name="Jobs Created"
+                      dot={{ r: 4 }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Cost Structure */}
+        {activeView === 'costs' && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-lg shadow-lg p-6">
+              <h2 className="text-2xl font-bold text-gray-800 mb-4">
+                Cost Components Over Time
+              </h2>
+              <ResponsiveContainer width="100%" height={400}>
+                <AreaChart data={projectionData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="year" />
+                  <YAxis label={{ value: 'Million USD', angle: -90, position: 'insideLeft' }} />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Legend />
+                  <Area 
+                    type="monotone" 
+                    dataKey="processingCost" 
+                    stackId="1"
+                    stroke="#ef4444" 
+                    fill="#fca5a5"
+                    name="Processing"
+                  />
+                  <Area 
+                    type="monotone" 
+                    dataKey="collectionCost" 
+                    stackId="1"
+                    stroke="#f59e0b" 
+                    fill="#fcd34d"
+                    name="Collection"
+                  />
+                  <Area 
+                    type="monotone" 
+                    dataKey="laborCost" 
+                    stackId="1"
+                    stroke="#3b82f6" 
+                    fill="#93c5fd"
+                    name="Labor"
+                  />
+                  <Area 
+                    type="monotone" 
+                    dataKey="technologyCost" 
+                    stackId="1"
+                    stroke="#8b5cf6" 
+                    fill="#c4b5fd"
+                    name="Technology"
+                  />
+                  <Area 
+                    type="monotone" 
+                    dataKey="complianceCost" 
+                    stackId="1"
+                    stroke="#10b981" 
+                    fill="#86efac"
+                    name="Compliance"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="bg-white rounded-lg shadow-lg p-6">
+              <h2 className="text-2xl font-bold text-gray-800 mb-4">
+                Cost Breakdown for 2030
+              </h2>
+              <ResponsiveContainer width="100%" height={350}>
+                <BarChart data={costBreakdown}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="category" />
+                  <YAxis label={{ value: 'Million USD', angle: -90, position: 'insideLeft' }} />
+                  <Tooltip />
+                  <Bar dataKey="value" fill="#3b82f6" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+
+        {/* Material Recovery */}
+        {activeView === 'materials' && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-lg shadow-lg p-6">
+              <h2 className="text-2xl font-bold text-gray-800 mb-4">
+                Material Recovery Value (2030 Projection)
+              </h2>
+              <ResponsiveContainer width="100%" height={400}>
+                <BarChart data={materialData} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis type="number" label={{ value: 'Million USD', position: 'insideBottom', offset: -5 }} />
+                  <YAxis dataKey="material" type="category" width={100} />
+                  <Tooltip />
+                  <Bar dataKey="value" fill="#10b981" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {materialData.map((material, index) => (
+                <div key={index} className="bg-white rounded-lg shadow-lg p-4">
+                  <h3 className="text-lg font-bold text-gray-800 mb-2">{material.material}</h3>
+                  <div className="space-y-2">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Recovered Volume:</span>
+                      <span className="font-bold">{material.volume.toLocaleString()} tonnes</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Market Value:</span>
+                      <span className="font-bold text-green-600">${material.value.toFixed(2)}M</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600">Recovery Rate:</span>
+                      <span className="font-bold">
+                        {(recoveryRates[material.material.toLowerCase()] * 100).toFixed(0)}%
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Cumulative Analysis */}
+        {activeView === 'cumulative' && (
+          <div className="space-y-6">
+            <div className="bg-white rounded-lg shadow-lg p-6">
+              <h2 className="text-2xl font-bold text-gray-800 mb-4">
+                Cumulative Economic Impact (2025-2035)
+              </h2>
+              <ResponsiveContainer width="100%" height={400}>
+                <AreaChart data={cumulativeData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="year" />
+                  <YAxis label={{ value: 'Million USD', angle: -90, position: 'insideLeft' }} />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Legend />
+                  <Area 
+                    type="monotone" 
+                    dataKey="cumulativeBenefits" 
+                    stroke="#10b981" 
+                    fill="#86efac"
+                    name="Cumulative Benefits"
+                  />
+                  <Area 
+                    type="monotone" 
+                    dataKey="cumulativeCosts" 
+                    stroke="#ef4444" 
+                    fill="#fca5a5"
+                    name="Cumulative Costs"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="bg-white rounded-lg shadow-lg p-6">
+              <h2 className="text-2xl font-bold text-gray-800 mb-4">
+                Net Cumulative Benefit
+              </h2>
+              <ResponsiveContainer width="100%" height={300}>
+                <AreaChart data={cumulativeData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="year" />
+                  <YAxis label={{ value: 'Million USD', angle: -90, position: 'insideLeft' }} />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Area 
+                    type="monotone" 
+                    dataKey="cumulativeNet" 
+                    stroke="#3b82f6" 
+                    fill="#93c5fd"
+                    name="Net Cumulative Benefit"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="bg-white rounded-lg shadow-lg p-6">
+              <h2 className="text-xl font-bold text-gray-800 mb-4">Key Performance Indicators</h2>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="bg-green-50 p-4 rounded-lg">
+                  <p className="text-sm text-gray-600 mb-1">Total 10-Year Benefits</p>
+                  <p className="text-2xl font-bold text-green-700">
+                    ${cumulativeData[10].cumulativeBenefits.toFixed(0)}M
+                  </p>
+                </div>
+                <div className="bg-red-50 p-4 rounded-lg">
+                  <p className="text-sm text-gray-600 mb-1">Total 10-Year Costs</p>
+                  <p className="text-2xl font-bold text-red-700">
+                    ${cumulativeData[10].cumulativeCosts.toFixed(0)}M
+                  </p>
+                </div>
+                <div className="bg-blue-50 p-4 rounded-lg">
+                  <p className="text-sm text-gray-600 mb-1">Net Economic Value</p>
+                  <p className="text-2xl font-bold text-blue-700">
+                    ${cumulativeData[10].cumulativeNet.toFixed(0)}M
+                  </p>
+                </div>
+              </div>
+              <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+                <p className="text-sm text-gray-600 mb-1">Benefit-Cost Ratio (2025-2035)</p>
+                <p className="text-3xl font-bold text-indigo-700">
+                  {(cumulativeData[10].cumulativeBenefits / cumulativeData[10].cumulativeCosts).toFixed(2)}:1
+                </p>
+                <p className="text-sm text-gray-600 mt-2">
+                  For every dollar invested, the e-waste recycling sector generates{' '}
+                  {(cumulativeData[10].cumulativeBenefits / cumulativeData[10].cumulativeCosts).toFixed(2)}{' '}
+                  dollars in economic value
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Methodology Note */}
+        <div className="bg-white rounded-lg shadow-lg p-6 mt-6">
+          <h3 className="text-lg font-bold text-gray-800 mb-3">Methodology & Parameters</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-gray-700">
+            <div>
+              <p className="font-semibold mb-2">Benefits Include:</p>
+              <ul className="list-disc list-inside space-y-1">
+                <li>Material recovery (Au, Ag, Cu, Al, plastics, rare earths)</li>
+                <li>Employment generation value</li>
+                <li>Avoided environmental cleanup costs</li>
+                <li>Government subsidies and incentives</li>
+              </ul>
+            </div>
+            <div>
+              <p className="font-semibold mb-2">Costs Include:</p>
+              <ul className="list-disc list-inside space-y-1">
+                <li>Collection infrastructure</li>
+                <li>Processing facilities and operations</li>
+                <li>Labor and workforce development</li>
+                <li>Technology and equipment</li>
+                <li>Regulatory compliance</li>
+              </ul>
+            </div>
+          </div>
+          <p className="mt-4 text-xs text-gray-500 italic">
+            Note: This model uses conservative estimates and assumes gradual infrastructure development, 
+            improving recovery efficiency, and stable material prices. Actual results may vary based on 
+            policy implementation, market conditions, and technological advancements.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default EWasteEconomicAnalysis;
